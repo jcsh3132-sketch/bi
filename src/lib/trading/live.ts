@@ -25,6 +25,11 @@ export async function liveCycle(mode:Exclude<Mode,"paper">,generation:string,dat
     if(external.length){
       const actual=external[0];
       if(Math.abs(Number(actual.positionAmt))!==p.quantity||(Number(actual.positionAmt)>0)!==(p.side==="LONG"))throw new Error("수동 변경된 포지션을 확인하세요.");
+      const actualEntry=Number(actual.entryPrice);
+      if(!Number.isFinite(actualEntry)||actualEntry<=0)throw new Error("거래소 진입가 확인 필요");
+      if(!Number.isFinite(p.entry)||p.entry==null||p.entry<=0){
+        await changeState(v=>{if(v.position&&v.position.orderId===p.orderId){v.position.entry=actualEntry;const trade=v.trades.findLast(t=>t.status==="OPEN");if(trade)trade.entry=actualEntry;}},mode);
+      }
       const protections=await api<Algo[]>("/fapi/v1/openAlgoOrders", "GET", {symbol:SYMBOL});
       const prefix=String(p.orderId);
       if(!protections.some(x=>x.clientAlgoId===`bi-sl-${prefix}`)||!protections.some(x=>x.clientAlgoId===`bi-tp-${prefix}`))throw new Error("보호 주문 확인 필요");
@@ -71,8 +76,12 @@ export async function liveCycle(mode:Exclude<Mode,"paper">,generation:string,dat
   // The intent is committed before POST. Step replay sees pending and halts.
   const submittedAt=Date.now();
   const order=await api<{orderId:number;avgPrice:string;executedQty:string;status:string}>("/fapi/v1/order","POST",{symbol:SYMBOL,side:p.side==="LONG"?"BUY":"SELL",positionSide:"BOTH",type:"MARKET",quantity,newClientOrderId:clientId,newOrderRespType:"RESULT"});
-  const entry=Number(order.avgPrice),filled=Number(order.executedQty);
-  if(order.status!=="FILLED"||entry<=0||filled<=0)throw new Error("미확정 체결 확인 필요");
+  let entry=Number(order.avgPrice),filled=Number(order.executedQty);
+  if(!Number.isFinite(entry)||entry<=0||!Number.isFinite(filled)||filled<=0){
+    const confirmed=await api<{avgPrice:string;executedQty:string;status:string}>("/fapi/v1/order","GET",{symbol:SYMBOL,orderId:order.orderId});
+    entry=Number(confirmed.avgPrice);filled=Number(confirmed.executedQty);
+  }
+  if(order.status!=="FILLED"||!Number.isFinite(entry)||entry<=0||!Number.isFinite(filled)||filled<=0)throw new Error("미확정 체결 확인 필요");
   await changeState(v=>{v.position={...p,entry,quantity:filled,stop:Number(stop),target:Number(target),opened:submittedAt,orderId:order.orderId};v.trades.push({id:(v.trades.at(-1)?.id||0)+1,side:p.side,status:"OPEN",entryTime:new Date(submittedAt).toISOString(),exitTime:null,entry,exit:null,pnl:null,result:null});},mode);
   try {
     if((p.side==="LONG"&&(entry<=Number(stop)||entry>=Number(target)))||(p.side==="SHORT"&&(entry>=Number(stop)||entry<=Number(target))))throw new Error("체결 가격이 보호 범위를 벗어났습니다.");
@@ -86,3 +95,4 @@ export async function liveCycle(mode:Exclude<Mode,"paper">,generation:string,dat
   await changeState(v=>{if(v.pending===clientId)v.pending=null;},mode);
   return s.nextAt;
 }
+
