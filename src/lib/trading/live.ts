@@ -4,8 +4,8 @@ import { binance, roundStep } from "./binance.ts";
 import { changeState, getState, type Mode } from "./store.ts";
 import { analyze, nextTick, plan, type Candle } from "./strategy.ts";
 import { getSettings } from "./settings.ts";
+import { settle, type Fill } from "./settlement.ts";
 type Account={multiAssetsMargin?:boolean;availableBalance:string;totalWalletBalance:string;positions:{symbol:string;positionAmt:string;positionSide:string;entryPrice:string}[]};
-type Fill={orderId:number;qty:string;price:string;realizedPnl:string;commission:string;commissionAsset:string;time:number};
 type Algo={algoId:number;clientAlgoId:string};
 const SYMBOL="BTCUSDT";
 export async function liveCycle(mode:Exclude<Mode,"paper">,generation:string,data:{candles:Candle[];price:number;serverTime:number}){
@@ -35,13 +35,14 @@ export async function liveCycle(mode:Exclude<Mode,"paper">,generation:string,dat
       if(!protections.some(x=>x.clientAlgoId===`bi-sl-${prefix}`)||!protections.some(x=>x.clientAlgoId===`bi-tp-${prefix}`))throw new Error("보호 주문 확인 필요");
     }else{
       const fills=await api<Fill[]>("/fapi/v1/userTrades","GET",{symbol:SYMBOL,startTime:p.opened-1000,limit:1000});
-      const entry=fills.filter(f=>f.orderId===p.orderId), exits=fills.filter(f=>f.orderId!==p.orderId);
-      // Reject mixed manual orders or incomplete history rather than invent PnL.
-      if(!entry.length||!exits.length||fills.length===1000||fills.some(f=>f.commissionAsset!=="USDT")||Math.abs(exits.reduce((n,f)=>n+Number(f.qty),0)-p.quantity)>1e-8)throw new Error("체결 기록 확인 필요");
-      const quantity=exits.reduce((n,f)=>n+Number(f.qty),0),exit=exits.reduce((n,f)=>n+Number(f.qty)*Number(f.price),0)/quantity,pnl=fills.reduce((n,f)=>n+Number(f.realizedPnl)-Number(f.commission),0);
+      const preliminary=settle(fills,p.orderId!,p.quantity);
+      const incomes=await api<{income:string;asset:string}[]>("/fapi/v1/income","GET",{symbol:SYMBOL,incomeType:"FUNDING_FEE",startTime:p.opened,endTime:Date.parse(preliminary.exitTime),limit:1000});
+      if(!Array.isArray(incomes)||incomes.length>=1000||incomes.some(i=>i.asset!=="USDT"||!Number.isFinite(Number(i.income))))throw new Error("펀딩비 확인 필요");
+      const result=settle(fills,p.orderId!,p.quantity,incomes.reduce((n,i)=>n+Number(i.income),0));
+      const {pnl}=result;
       const protections=await api<Algo[]>("/fapi/v1/openAlgoOrders","GET",{symbol:SYMBOL});
       for(const order of protections.filter(x=>[ `bi-sl-${p.orderId}`,`bi-tp-${p.orderId}`].includes(x.clientAlgoId)))await api("/fapi/v1/algoOrder","DELETE",{symbol:SYMBOL,algoId:order.algoId});
-      await changeState(v=>{if(v.generation!==generation||v.position?.orderId!==p.orderId)return;const trade=v.trades.findLast(t=>t.status==="OPEN");if(!trade)throw new Error("기록 불일치");Object.assign(trade,{status:"CLOSED",exitTime:new Date(Math.max(...exits.map(f=>f.time))).toISOString(),exit,pnl,result:pnl>0?"WIN":pnl<0?"LOSS":"BREAKEVEN"});v.position=null;v.losses=pnl<0?v.losses+1:0;},mode);
+      await changeState(v=>{if(v.generation!==generation||v.position?.orderId!==p.orderId)return;const trade=v.trades.findLast(t=>t.status==="OPEN");if(!trade)throw new Error("기록 불일치");Object.assign(trade,{...result,status:"CLOSED",result:pnl>0?"WIN":pnl<0?"LOSS":"BREAKEVEN"});v.position=null;v.losses=pnl<0?v.losses+1:0;},mode);
       // No immediate re-entry on the same reconciliation cycle.
       await changeState(v=>{if(v.generation===generation)v.lastCandle=latest.time;},mode);
     }
