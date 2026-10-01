@@ -5,6 +5,7 @@ import { failure, HttpError, json, readBody, requireOwner, sameOrigin } from "@/
 import { changeState, getState, botMode } from "@/lib/trading/store";
 import { loadCredential } from "@/lib/credentials";
 import { scheduledBot } from "@/workflows/bot";
+import { demoCheck } from "@/lib/trading/demo-check";
 export async function GET(){try{await requireOwner();const s=await getState();return json({enabled:s.enabled,nextAt:s.nextAt,lastAt:s.lastAt,error:s.error,warning:s.warning,pending:!!s.pending,mode:s.mode});}catch(e){return failure(e);}}
 export async function POST(request:NextRequest){
   try {
@@ -21,6 +22,10 @@ export async function POST(request:NextRequest){
       if(process.env.VERCEL_ENV&&process.env.VERCEL_ENV!=="production")throw new HttpError(403,"운영 배포에서만 주문을 실행할 수 있습니다.");
       if(body.confirm!==(mode==="mainnet"?"실거래 시작":"테스트 거래 시작"))throw new HttpError(400,"거래 시작 확인 문구를 입력하세요.");
       if(!await loadCredential(mode))throw new HttpError(400,"해당 계정의 API 키를 먼저 저장하세요.");
+      if(mode==="testnet"&&!(await getState(mode)).position){
+        const check=await demoCheck();
+        if(check.multiAssets||check.hedgeMode||check.positions||check.openOrders||check.algoOrders)throw new HttpError(409,"Demo 계정은 단방향·단일 자산 모드여야 하며, BTCUSDT의 기존 포지션과 주문을 먼저 확인해야 합니다.");
+      }
     }
     const generation=await changeState(s=>{if(s.pending)throw new HttpError(409,"미확정 주문이 있습니다. 거래소에서 체결과 보호 주문을 확인한 후 기록을 복구해야 합니다.");if(s.enabled&&!s.error&&s.nextAt!==null&&Date.now()-s.nextAt<120000)return null;s.enabled=true;s.error=null;s.warning=null;s.generation=randomUUID();s.nextAt=Date.now();s.workflowId=null;return s.generation;});
     if(!generation)return json({message:"봇이 이미 실행 중입니다."});
