@@ -2,7 +2,7 @@ import "server-only";
 import { Pool } from "pg";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createRequire } from "node:module";
+import { DatabaseSync } from "node:sqlite";
 
 type Row = Record<string, unknown>;
 type Sqlite = { prepare: (sql: string) => { all: (...params: unknown[]) => Row[] }; exec: (sql: string) => void };
@@ -40,7 +40,6 @@ export async function query<T extends Row = Row>(sql: string, params: unknown[] 
   if (!runtime.dashboardLocal) {
     const path = resolve(process.env.LOCAL_DATABASE_PATH);
     mkdirSync(dirname(path), { recursive: true });
-    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
     runtime.dashboardLocal = new DatabaseSync(path) as Sqlite;
     runtime.dashboardLocal.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
   }
