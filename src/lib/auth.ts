@@ -50,6 +50,8 @@ export function requireBridge(request: NextRequest) {
 export function json(value: unknown, status = 200) { return NextResponse.json(value, { status, headers: { "Cache-Control": "no-store, private" } }); }
 export function failure(error: unknown) {
   if (error instanceof HttpError) return json({ error: error.message }, error.status);
+  const code=typeof error==="object"&&error&&"code" in error?String(error.code):"UNKNOWN";
+  console.error("Request failed", /^[A-Z0-9_]{1,50}$/.test(code)?code:"UNKNOWN");
   // Never return/log database URLs, request objects, or decrypted credentials.
   return json({ error: "요청을 완료하지 못했습니다. 서버 설정과 연결 상태를 확인하세요." }, 503);
 }

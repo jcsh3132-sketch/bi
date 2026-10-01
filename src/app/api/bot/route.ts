@@ -22,7 +22,7 @@ export async function POST(request:NextRequest){
       if(body.confirm!==(mode==="mainnet"?"실거래 시작":"테스트 거래 시작"))throw new HttpError(400,"거래 시작 확인 문구를 입력하세요.");
       if(!await loadCredential(mode))throw new HttpError(400,"해당 계정의 API 키를 먼저 저장하세요.");
     }
-    const generation=await changeState(s=>{if(s.pending)throw new HttpError(409,"미확정 주문이 있습니다. 거래소에서 체결과 보호 주문을 확인한 후 기록을 복구해야 합니다.");if(s.enabled&&!s.error)return null;s.enabled=true;s.error=null;s.warning=null;s.generation=randomUUID();s.nextAt=Date.now();s.workflowId=null;return s.generation;});
+    const generation=await changeState(s=>{if(s.pending)throw new HttpError(409,"미확정 주문이 있습니다. 거래소에서 체결과 보호 주문을 확인한 후 기록을 복구해야 합니다.");if(s.enabled&&!s.error&&s.nextAt!==null&&Date.now()-s.nextAt<120000)return null;s.enabled=true;s.error=null;s.warning=null;s.generation=randomUUID();s.nextAt=Date.now();s.workflowId=null;return s.generation;});
     if(!generation)return json({message:"봇이 이미 실행 중입니다."});
     try {
       const run=await start(scheduledBot,[generation,mode]);
