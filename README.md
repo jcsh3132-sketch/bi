@@ -49,3 +49,6 @@ Next.js 소유자 전용 웹 화면과 Vercel Workflow 예약 실행으로 PC를
 검증: `npm test`, `npm run build`, `npm audit --omit=dev`. 실제 자금 주문은 검증 명령에 포함되지 않습니다.
 
 공식 문서: [Vercel Workflow](https://useworkflow.dev/docs/foundations/starting-workflows), [Vercel 요금](https://vercel.com/pricing), [Binance USDⓈ-M API](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/trade).
+
+계정 잔고: 거래 현황에서 Demo/실계정을 선택하면 USDT 지갑 잔고와 사용 가능 잔고를 조회합니다. 내부 paper 잔고/성과와 별도 표시합니다. 조회만으로 주문 모드를 변경하지 않습니다.
+비밀번호 변경: 소유자 메뉴에서 현재 비밀번호와 새 비밀번호(12~128자)를 입력합니다. 해시는 DB에 저장되어 재배포 후에도 유지되며 모든 세션이 종료됩니다. ADMIN_PASSWORD_HASH는 최초 로그인용으로만 사용됩니다.

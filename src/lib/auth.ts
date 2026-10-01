@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { equalSecret, sha256 } from "./crypto";
-import { query, ready } from "./db";
+import { query, ready, transaction } from "./db";
 
 export const COOKIE = "bi_owner_session";
 export class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }
@@ -35,12 +35,19 @@ export async function readBody(request: NextRequest, max = 8192) {
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); }
   catch { throw new HttpError(400, "요청 형식이 잘못되었습니다."); }
 }
-export async function createSession(response: NextResponse) {
+export async function createSession(response: NextResponse, expectedHash?:string) {
   await ready();
   const token = randomBytes(32).toString("base64url");
   const seconds = 60 * 60 * 24 * 7;
-  await query("DELETE FROM owner_sessions WHERE expires_at < $1", [Date.now()]);
-  await query("INSERT INTO owner_sessions(token_hash,expires_at) VALUES($1,$2)", [sha256(token), Date.now() + seconds * 1000]);
+  await transaction(async sql=>{
+    if(expectedHash){
+      await sql("INSERT INTO owner_auth(id,password_hash) VALUES($1,$2) ON CONFLICT(id) DO NOTHING",["owner",process.env.ADMIN_PASSWORD_HASH || ""]);
+      const rows=await sql<{password_hash:string}>("SELECT password_hash FROM owner_auth WHERE id=$1"+(process.env.DATABASE_URL?" FOR UPDATE":""),["owner"]);
+      if(!equalSecret(rows[0].password_hash,expectedHash))throw new HttpError(401,"비밀번호가 변경되었습니다. 다시 로그인하세요.");
+    }
+    await sql("DELETE FROM owner_sessions WHERE expires_at < $1", [Date.now()]);
+    await sql("INSERT INTO owner_sessions(token_hash,expires_at) VALUES($1,$2)", [sha256(token), Date.now() + seconds * 1000]);
+  });
   response.cookies.set(COOKIE, token, { httpOnly: true, secure: !!process.env.VERCEL || process.env.APP_ORIGIN?.startsWith("https://"), sameSite: "strict", path: "/", maxAge: seconds });
 }
 export function requireBridge(request: NextRequest) {

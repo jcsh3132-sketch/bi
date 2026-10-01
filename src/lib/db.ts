@@ -52,6 +52,7 @@ export async function ready() {
   runtime.dashboardInit ??= (async () => {
     for (const statement of [
       "CREATE TABLE IF NOT EXISTS owner_sessions (token_hash TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS owner_auth (id TEXT PRIMARY KEY, password_hash TEXT NOT NULL)",
       "CREATE TABLE IF NOT EXISTS api_credentials (environment TEXT PRIMARY KEY, encrypted_value TEXT NOT NULL, masked_key TEXT NOT NULL, updated_at TEXT NOT NULL)",
       "CREATE TABLE IF NOT EXISTS bot_snapshots (id TEXT PRIMARY KEY, payload TEXT NOT NULL, received_at TEXT NOT NULL)",
       "CREATE TABLE IF NOT EXISTS request_limits (id TEXT PRIMARY KEY, attempts INTEGER NOT NULL, expires_at BIGINT NOT NULL)",
