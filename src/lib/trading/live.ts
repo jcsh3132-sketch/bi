@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { binance, roundStep } from "./binance.ts";
 import { changeState, getState, type Mode } from "./store.ts";
 import { analyze, nextTick, plan, type Candle } from "./strategy.ts";
+import { getSettings } from "./settings.ts";
 type Account={multiAssetsMargin?:boolean;availableBalance:string;totalWalletBalance:string;positions:{symbol:string;positionAmt:string;positionSide:string;entryPrice:string}[]};
 type Fill={orderId:number;qty:string;price:string;realizedPnl:string;commission:string;commissionAsset:string;time:number};
 type Algo={algoId:number;clientAlgoId:string};
@@ -46,8 +47,13 @@ export async function liveCycle(mode:Exclude<Mode,"paper">,generation:string,dat
   s=await getState(mode);
   if(!s.enabled||s.generation!==generation)return null;
   if(s.position||latest.time<=s.lastCandle||signal.side==="WAIT"||data.serverTime-latest.end>120000||balance<=s.dayBalance*.97||s.losses>=3){await changeState(v=>{if(v.generation===generation)v.lastCandle=latest.time;},mode);return s.nextAt;}
-  const p=plan(data.candles,signal.side,Math.min(balance,available),data.price);
+  const settings=await getSettings(mode);
+  if(settings.sizing==="fixed"){
+    if(settings.margin>available*.99){await changeState(v=>{if(v.generation===generation)v.warning="설정한 진입 증거금보다 사용 가능 잔고가 부족해 신규 진입을 생략했습니다.";},mode);return s.nextAt;}
+  }
+  const p=plan(data.candles,signal.side,Math.min(balance,available),data.price,settings.sizing==="fixed"?settings:undefined);
   if(!p)return s.nextAt;
+  if(settings.sizing==="auto")p.quantity=Math.min(p.quantity,available*.99*settings.leverage/p.entry);
   const base=mode==="testnet"?"https://demo-fapi.binance.com":"https://fapi.binance.com";
   const response=await fetch(base+"/fapi/v1/exchangeInfo",{cache:"no-store",signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error("주문 규칙 조회 실패");
   const info=await response.json(),symbol=info.symbols.find((x:{symbol:string})=>x.symbol===SYMBOL);
@@ -56,7 +62,9 @@ export async function liveCycle(mode:Exclude<Mode,"paper">,generation:string,dat
   const quantity=roundStep(p.quantity,lot.stepSize),stop=roundStep(p.stop,tick.tickSize),target=roundStep(p.target,tick.tickSize);
   const notional=symbol.filters.find((x:{filterType:string})=>x.filterType==="MIN_NOTIONAL");
   if(Number(quantity)<Number(lot.minQty)||Number(quantity)>Number(lot.maxQty)||Number(quantity)*p.entry<Number(notional?.notional||10))return s.nextAt;
-  await api("/fapi/v1/leverage","POST",{symbol:SYMBOL,leverage:2});
+  const leverageResult=await api<{leverage?:number;maxNotionalValue?:string}>("/fapi/v1/leverage","POST",{symbol:SYMBOL,leverage:settings.leverage});
+  if(leverageResult.leverage!=null&&leverageResult.leverage!==settings.leverage)throw new Error("요청한 배수 적용 실패");
+  if(leverageResult.maxNotionalValue!=null&&Number(quantity)*data.price>Number(leverageResult.maxNotionalValue))throw new Error("배수별 최대 주문 금액 초과");
   const clientId="bi-"+createHash("sha256").update(`${mode}:${latest.time}`).digest("hex").slice(0,28);
   const claimed=await changeState(v=>{if(!v.enabled||v.generation!==generation||v.position||v.pending||v.lastCandle>=latest.time)return false;v.pending=clientId;v.lastCandle=latest.time;return true;},mode);
   if(!claimed)return s.nextAt;

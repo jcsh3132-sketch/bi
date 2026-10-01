@@ -50,12 +50,13 @@ export function analyze(candles: Candle[]) {
   if(side==="WAIT"&&!reasons.length)reasons.push("진입 점수 미충족");
   return {side,regime,longScore:long,shortScore:short,candleTime:new Date(v.time).toISOString(),reasons,atr:v.atr};
 }
-export function plan(c:Candle[],side:Side,balance:number,entry=c.at(-1)!.close) {
+export function plan(c:Candle[],side:Side,balance:number,entry=c.at(-1)!.close,fixed?:{margin:number;leverage:number}) {
   const atr=indicators(c).at(-1)!.atr, direction=side==="LONG"?1:-1, recent=c.slice(-10);
   const swing=side==="LONG"?Math.min(...recent.map(v=>v.low))-.2*atr:Math.max(...recent.map(v=>v.high))+.2*atr;
   const distance=Math.max(1.5*atr,Math.abs(entry-swing),entry*.0035);
   if(!Number.isFinite(distance)||distance<=0||distance/entry>.015||balance<=0)return null;
-  const quantity=Math.min(balance*.005*.999/distance,balance/entry);
+  const quantity=fixed?fixed.margin*fixed.leverage/entry:Math.min(balance*.005*.999/distance,balance/entry);
+  if(!Number.isFinite(quantity)||quantity<=0)return null;
   if(quantity*entry<10)return null;
   return {side,entry,stop:entry-direction*distance,target:entry+direction*distance*2,quantity};
 }
