@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.vercel/
+.env*
+!.env.example
+.local/
+*.log
+*.tsbuildinfo
+playwright-report/
+test-results/
+.workflow-data/
+src/app/.well-known/workflow/
+worker/
+compose.yaml
+.env.worker.example
+/.swc
