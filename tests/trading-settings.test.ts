@@ -41,3 +41,14 @@ test("missing legacy entry price is repaired from the existing exchange position
   };
   try{await liveCycle("testnet","repair",{candles,price:10300,serverTime:Date.now()});assert.equal((await getState("testnet")).position?.entry,84000);assert.equal((await getState("testnet")).trades[0].entry,84000);}finally{globalThis.fetch=original;}
 });
+
+test("legacy settings keep original protective defaults and custom values persist separately",async()=>{
+ const old={environment:"testnet",leverage:10,sizing:"auto",margin:100};
+ const parsed=settingsSchema.parse(old);
+ assert.equal(parsed.maxStopPercent,1.5);assert.equal(parsed.rewardRisk,2);
+ await saveSettings({...parsed,maxStopPercent:.8,rewardRisk:1.5});
+ const restored=await getSettings("testnet");assert.equal(restored.maxStopPercent,.8);assert.equal(restored.rewardRisk,1.5);
+ assert.equal((await getSettings("mainnet")).rewardRisk,2);
+ for(const maxStopPercent of [.34,1.51,Infinity])assert.equal(settingsSchema.safeParse({...old,maxStopPercent}).success,false);
+ for(const rewardRisk of [.49,3.01,NaN])assert.equal(settingsSchema.safeParse({...old,rewardRisk}).success,false);
+});

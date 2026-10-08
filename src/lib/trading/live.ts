@@ -57,8 +57,8 @@ export async function liveCycle(mode:Exclude<Mode,"paper">,generation:string,dat
   if(settings.sizing==="fixed"){
     if(settings.margin>available*.99){await changeState(v=>{if(v.generation===generation)v.warning="설정한 진입 증거금보다 사용 가능 잔고가 부족해 신규 진입을 생략했습니다.";},mode);return s.nextAt;}
   }
-  const p=plan(data.candles,signal.side,Math.min(balance,available),data.price,settings.sizing==="fixed"?settings:undefined);
-  if(!p)return s.nextAt;
+  const p=plan(data.candles,signal.side,Math.min(balance,available),data.price,settings.sizing==="fixed"?settings:undefined,settings);
+  if(!p){await changeState(v=>{if(v.generation===generation){v.lastCandle=latest.time;v.warning="손절 최대폭·수량·최소 주문 조건을 충족하지 않아 신규 진입을 생략했습니다. 손절선을 억지로 좁히지 않습니다.";}},mode);return s.nextAt;}
   if(settings.sizing==="auto")p.quantity=Math.min(p.quantity,available*.99*settings.leverage/p.entry);
   const base=mode==="testnet"?"https://demo-fapi.binance.com":"https://fapi.binance.com";
   const response=await fetch(base+"/fapi/v1/exchangeInfo",{cache:"no-store",signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error("주문 규칙 조회 실패");

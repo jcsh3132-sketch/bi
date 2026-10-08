@@ -11,3 +11,22 @@ test("risk cap and conservative stop/target collision",()=>{const p=plan(candles
 test("same candle replay preserves accounting and cannot re-enter",()=>{const s=state(),now=500*PERIOD+5000;paperCycle(s,candles,candles.at(-1)!.close,now);const before=JSON.stringify({...s,lastAt:null,nextAt:null});paperCycle(s,candles,candles.at(-1)!.close,now+10000);assert.equal(JSON.stringify({...s,lastAt:null,nextAt:null}),before);});
 test("recover missed exits once, charge both fills, no immediate reentry",()=>{const s=state(),c=candles.at(-1)!;s.lastCandle=candles.at(-2)!.time;s.position={side:"LONG",entry:c.close,stop:c.low+1,target:c.high+100,quantity:1,opened:c.time};s.trades=[{id:1,side:"LONG",status:"OPEN",entryTime:new Date(c.time).toISOString(),exitTime:null,entry:c.close,exit:null,pnl:null,result:null}];paperCycle(s,candles,c.close,c.end+5001);assert.equal(s.position,null);assert.equal(s.trades.length,1);assert.equal(s.trades[0].status,"CLOSED");assert.ok(s.balance<1000);const balance=s.balance;paperCycle(s,candles,c.close,c.end+10000);assert.equal(s.balance,balance);});
 test("late wake-up never enters a stale candle",()=>{const s=state();paperCycle(s,candles,candles.at(-1)!.close,500*PERIOD+180000);assert.equal(s.position,null);assert.ok(s.signal!.reasons.includes("지연된 신호의 신규 진입 생략"));});
+
+test("flat prices give neutral RSI rather than an artificial oversold signal",()=>{
+ const flat=candles.map(c=>({...c,open:10000,high:10000,low:10000,close:10000}));
+ assert.equal(indicators(flat).at(-1)!.rsi,50);
+});
+test("protection cap rejects wide setups and reward ratio controls both sides",()=>{
+ const entry=candles.at(-1)!.close;
+ for(const side of ["LONG","SHORT"] as const){
+  const normal=plan(candles,side,1000,entry)!;
+  const custom=plan(candles,side,1000,entry,undefined,{maxStopPercent:1.5,rewardRisk:1.5})!;
+  assert.equal(custom.stop,normal.stop);
+  assert.ok(Math.abs(Math.abs(custom.target-entry)/Math.abs(custom.stop-entry)-1.5)<1e-10);
+ }
+ const wide=candles.map((c,i)=>({...c,low:i===candles.length-2?entry*.99:c.low}));
+ assert.ok(plan(wide,"LONG",1000,entry));
+ assert.equal(plan(wide,"LONG",1000,entry,undefined,{maxStopPercent:.8,rewardRisk:2}),null);
+ for(const maxStopPercent of [NaN,.2,2])assert.equal(plan(candles,"LONG",1000,entry,undefined,{maxStopPercent,rewardRisk:2}),null);
+ assert.equal(plan(candles,"LONG",1000,Infinity),null);
+});

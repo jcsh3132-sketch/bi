@@ -17,7 +17,7 @@ export function indicators(c: Candle[]) {
   const minus=ewm(c.map((v,i)=>{const up=i?v.high-c[i-1].high:0, down=i?c[i-1].low-v.low:0;return down>up&&down>0?down:0;}),1/14,14);
   const pdi=plus.map((v,i)=>atr[i]?100*v/atr[i]:NaN), mdi=minus.map((v,i)=>atr[i]?100*v/atr[i]:NaN);
   const adx=ewm(pdi.map((v,i)=>v+mdi[i]?100*Math.abs(v-mdi[i])/(v+mdi[i]):NaN),1/14,14);
-  return c.map((v,i)=>({...v, fast:fast[i],slow:slow[i],trend:trend[i],macd:macd[i],hist:hist[i],macdSignal:signal[i],atr:atr[i],pdi:pdi[i],mdi:mdi[i],adx:adx[i],rsi:gain[i]===0?0:loss[i]===0?100:100-100/(1+gain[i]/loss[i]),volumeRatio:i>=19?v.volume/(c.slice(i-19,i+1).reduce((s,x)=>s+x.volume,0)/20):NaN}));
+  return c.map((v,i)=>({...v, fast:fast[i],slow:slow[i],trend:trend[i],macd:macd[i],hist:hist[i],macdSignal:signal[i],atr:atr[i],pdi:pdi[i],mdi:mdi[i],adx:adx[i],rsi:gain[i]===0&&loss[i]===0?50:gain[i]===0?0:loss[i]===0?100:100-100/(1+gain[i]/loss[i]),volumeRatio:i>=19?v.volume/(c.slice(i-19,i+1).reduce((s,x)=>s+x.volume,0)/20):NaN}));
 }
 export function analyze(candles: Candle[]) {
   const rows=indicators(candles), v=rows.at(-1)!, previous=rows.at(-2)!;
@@ -50,15 +50,18 @@ export function analyze(candles: Candle[]) {
   if(side==="WAIT"&&!reasons.length)reasons.push("진입 점수 미충족");
   return {side,regime,longScore:long,shortScore:short,candleTime:new Date(v.time).toISOString(),reasons,atr:v.atr};
 }
-export function plan(c:Candle[],side:Side,balance:number,entry=c.at(-1)!.close,fixed?:{margin:number;leverage:number}) {
+export type ProtectionSettings = { maxStopPercent:number; rewardRisk:number };
+export const DEFAULT_PROTECTION:ProtectionSettings={maxStopPercent:1.5,rewardRisk:2};
+export function plan(c:Candle[],side:Side,balance:number,entry=c.at(-1)!.close,fixed?:{margin:number;leverage:number},protection:ProtectionSettings=DEFAULT_PROTECTION) {
+  if(!Number.isFinite(entry)||entry<=0||!Number.isFinite(balance)||balance<=0||!Number.isFinite(protection.maxStopPercent)||protection.maxStopPercent<.35||protection.maxStopPercent>1.5||!Number.isFinite(protection.rewardRisk)||protection.rewardRisk<.5||protection.rewardRisk>3)return null;
   const atr=indicators(c).at(-1)!.atr, direction=side==="LONG"?1:-1, recent=c.slice(-10);
   const swing=side==="LONG"?Math.min(...recent.map(v=>v.low))-.2*atr:Math.max(...recent.map(v=>v.high))+.2*atr;
   const distance=Math.max(1.5*atr,Math.abs(entry-swing),entry*.0035);
-  if(!Number.isFinite(distance)||distance<=0||distance/entry>.015||balance<=0)return null;
+  if(!Number.isFinite(distance)||distance<=0||distance/entry>protection.maxStopPercent/100||balance<=0)return null;
   const quantity=fixed?fixed.margin*fixed.leverage/entry:Math.min(balance*.005*.999/distance,balance/entry);
   if(!Number.isFinite(quantity)||quantity<=0)return null;
   if(quantity*entry<10)return null;
-  return {side,entry,stop:entry-direction*distance,target:entry+direction*distance*2,quantity};
+  return {side,entry,stop:entry-direction*distance,target:entry+direction*distance*protection.rewardRisk,quantity};
 }
 export type Position = NonNullable<ReturnType<typeof plan>> & { opened: number; orderId?: number };
 export function exitPrice(position:Position,c:Candle) {
