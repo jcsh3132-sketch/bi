@@ -31,6 +31,7 @@ test("exchange timeout after intent never produces a second entry on replay",asy
     else if(url.pathname.endsWith("/account"))result={totalWalletBalance:"1000",availableBalance:"1000",positions:[]};
     else if(url.pathname.endsWith("/dual"))result={dualSidePosition:false};
     else if(url.pathname.endsWith("/exchangeInfo"))result={symbols:[{symbol:"BTCUSDT",status:"TRADING",filters:[{filterType:"MARKET_LOT_SIZE",stepSize:"0.001",minQty:"0.001",maxQty:"100"},{filterType:"PRICE_FILTER",tickSize:"0.10"}]}]};
+    else if(url.pathname.endsWith("/leverageBracket"))result=[{symbol:"BTCUSDT",brackets:[{notionalFloor:0,notionalCap:1000000,initialLeverage:125,maintMarginRatio:.004}]}];
     else if(url.pathname.endsWith("/order")&&init?.method==="POST"){submissions++;throw new Error("simulated timeout");}
     return new Response(JSON.stringify(result),{status:200,headers:{"Content-Type":"application/json"}});
   };

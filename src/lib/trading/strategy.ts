@@ -50,6 +50,9 @@ export function analyze(candles: Candle[]) {
   if(side==="WAIT"&&!reasons.length)reasons.push("진입 점수 미충족");
   return {side,regime,longScore:long,shortScore:short,candleTime:new Date(v.time).toISOString(),reasons,atr:v.atr};
 }
+export const ACCOUNT_RISK=.005;
+export const COST_BUFFER=.003; // Two 0.05% fees + two 0.10% stress-slippage allowances.
+export function plannedRisk(entry:number,stop:number,quantity:number){return (Math.abs(entry-stop)+entry*COST_BUFFER)*quantity;}
 export type ProtectionSettings = { maxStopPercent:number; rewardRisk:number };
 export const DEFAULT_PROTECTION:ProtectionSettings={maxStopPercent:1.5,rewardRisk:2};
 export function plan(c:Candle[],side:Side,balance:number,entry=c.at(-1)!.close,fixed?:{margin:number;leverage:number},protection:ProtectionSettings=DEFAULT_PROTECTION) {
@@ -58,8 +61,8 @@ export function plan(c:Candle[],side:Side,balance:number,entry=c.at(-1)!.close,f
   const swing=side==="LONG"?Math.min(...recent.map(v=>v.low))-.2*atr:Math.max(...recent.map(v=>v.high))+.2*atr;
   const distance=Math.max(1.5*atr,Math.abs(entry-swing),entry*.0035);
   if(!Number.isFinite(distance)||distance<=0||distance/entry>protection.maxStopPercent/100||balance<=0)return null;
-  const quantity=fixed?fixed.margin*fixed.leverage/entry:Math.min(balance*.005*.999/distance,balance/entry);
-  if(!Number.isFinite(quantity)||quantity<=0)return null;
+  const quantity=fixed?fixed.margin*fixed.leverage/entry:Math.min(balance*ACCOUNT_RISK/(distance+entry*COST_BUFFER),balance/entry);
+  if(!Number.isFinite(quantity)||quantity<=0||plannedRisk(entry,entry-direction*distance,quantity)>balance*ACCOUNT_RISK+1e-8)return null;
   if(quantity*entry<10)return null;
   return {side,entry,stop:entry-direction*distance,target:entry+direction*distance*protection.rewardRisk,quantity};
 }

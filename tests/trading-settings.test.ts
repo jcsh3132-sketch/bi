@@ -36,7 +36,7 @@ test("missing legacy entry price is repaired from the existing exchange position
   globalThis.fetch=async(input,init)=>{
     assert.notEqual(init?.method,"POST");
     const path=new URL(String(input)).pathname;
-    const result=path.endsWith("/time")?{serverTime:Date.now()}:path.endsWith("/account")?{availableBalance:"1000",totalWalletBalance:"1000",positions:[{symbol:"BTCUSDT",positionAmt:"-0.02",entryPrice:"84000"}]}:path.endsWith("/dual")?{dualSidePosition:false}:[{clientAlgoId:"bi-sl-42"},{clientAlgoId:"bi-tp-42"}];
+    const result=path.endsWith("/time")?{serverTime:Date.now()}:path.endsWith("/account")?{availableBalance:"1000",totalWalletBalance:"1000",positions:[{symbol:"BTCUSDT",positionAmt:"-0.02",entryPrice:"84000"}]}:path.endsWith("/dual")?{dualSidePosition:false}:path.endsWith("/positionRisk")?[{symbol:"BTCUSDT",positionAmt:"-0.02",liquidationPrice:"100000"}]:[{algoId:1,clientAlgoId:"bi-sl-42",symbol:"BTCUSDT",side:"BUY",orderType:"STOP_MARKET",triggerPrice:"85000",closePosition:true,workingType:"MARK_PRICE"},{algoId:2,clientAlgoId:"bi-tp-42",symbol:"BTCUSDT",side:"BUY",orderType:"TAKE_PROFIT_MARKET",triggerPrice:"82000",closePosition:true,workingType:"MARK_PRICE"}];
     return new Response(JSON.stringify(result));
   };
   try{await liveCycle("testnet","repair",{candles,price:10300,serverTime:Date.now()});assert.equal((await getState("testnet")).position?.entry,84000);assert.equal((await getState("testnet")).trades[0].entry,84000);}finally{globalThis.fetch=original;}

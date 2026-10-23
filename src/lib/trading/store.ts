@@ -5,7 +5,10 @@ import type { Snapshot } from "../schema";
 import type { Position } from "./strategy";
 export type Mode = "paper" | "testnet" | "mainnet";
 export function botMode():Mode { const mode=process.env.BOT_TRADING_MODE||"paper";if(!["paper","testnet","mainnet"].includes(mode))throw new Error("실행 모드 오류");if(mode==="mainnet"&&process.env.ALLOW_MAINNET_LIVE!=="true")throw new Error("실거래 허용 설정이 필요합니다.");return mode as Mode; }
+export type EntryIntent={clientId:string;plan:Position;submittedAt:number;requestTimestamp:number;lastSubmissionAt:number;riskBudget:number};
+export type CloseIntent={clientId:string;submittedAt:number;requestTimestamp:number;remainingBefore:number};
 export type BotState = {
+  entryIntent?:EntryIntent|null; closeIntent?:CloseIntent|null; executionLease?:{owner:string;until:number}|null;
   mode: Mode; pending: string | null;
   enabled: boolean; generation: string; nextAt: number | null; lastAt: number | null;
   workflowId: string | null; error: string | null; lastCandle: number;
@@ -35,3 +38,5 @@ export function snapshot(s:BotState):Snapshot{
   const today=new Date().toISOString().slice(0,10);
   return {capturedAt:new Date().toISOString(),runtime:{state:s.error?"ERROR":s.enabled?"RUNNING":"STOPPED",updatedAt:s.lastAt?new Date(s.lastAt).toISOString():null,dryRun:s.mode==="paper",testnet:s.mode==="testnet",symbol:"BTCUSDT",timeframe:"15m",entryEnabled:s.enabled&&!s.error},balance:s.balance,performance:{totalTrades:closed.length,winRate:closed.length?wins.length/closed.length*100:0,netPnl:closed.reduce((n,t)=>n+(t.pnl||0),0),todayPnl:closed.filter(t=>t.exitTime?.startsWith(today)).reduce((n,t)=>n+(t.pnl||0),0),profitFactor:negative?positive/-negative:null},signal:s.signal,position:s.position,history:s.history.slice(-200),trades:s.trades.slice(-100).reverse()};
 }
+
+export function needsSupervision(s:BotState){return s.mode!=="paper"&&!!(s.position||s.pending||s.entryIntent||s.closeIntent);}

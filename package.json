@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "test": "node --conditions=react-server --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --conditions=react-server --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs",
     "setup": "node scripts/setup.mjs",
     "research": "node --experimental-strip-types scripts/compare-strategies.mjs"
   },

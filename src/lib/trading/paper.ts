@@ -11,8 +11,11 @@ export function paperCycle(s:BotState,candles:Candle[],price:number,now:number){
   let exited=false;
   if(s.position){
     for(const c of candles){
-      if(c.time<s.position.opened||c.time<=s.lastCandle)continue;
-      const exit=exitPrice(s.position,c);
+      if(c.end<s.position.opened||c.time<=s.lastCandle)continue;
+      const partial=c.time<s.position.opened;
+      if(partial)s.warning="내부 모의거래 첫 봉은 손절 우선, 익절은 종가 확인으로 보수적으로 계산합니다.";
+      const long=s.position.side==="LONG";
+      const exit=partial?exitPrice(s.position,{...c,open:s.position.entry,high:long?Math.min(c.high,Math.max(s.position.entry,c.close)):c.high,low:long?c.low:Math.max(c.low,Math.min(s.position.entry,c.close))}):exitPrice(s.position,c);
       if(exit===null)continue;
       const p=s.position, pnl=((p.side==="LONG"?1:-1)*(exit-p.entry)-.0005*(exit+p.entry))*p.quantity;
       s.balance+=pnl;s.losses=pnl<0?s.losses+1:0;
