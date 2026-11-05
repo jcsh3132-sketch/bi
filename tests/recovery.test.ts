@@ -31,3 +31,32 @@ test('only expired new intents confirmed absent and flat can be cleared',async()
 test('active execution lease blocks overlapping order writers before connecting',async()=>{await seed(false);await changeState(s=>{s.executionLease={owner:'other',until:Date.now()+60000};},'testnet');let ran=false;await assert.rejects(withExecution('testnet',async()=>{ran=true;}));assert.equal(ran,false);});
 test('auto size includes costs; oversized fixed size and dangerous leverage are rejected',()=>{const c=Array.from({length:300},(_,i)=>({time:i*900000,end:(i+1)*900000-1,open:10000+i,close:10001+i,high:10010+i,low:9990+i,volume:100}));const a=plan(c,'LONG',1000,10300)!;assert.ok(a);assert.ok(plannedRisk(a.entry,a.stop,a.quantity)<=5+1e-8);assert.equal(plan(c,'LONG',1000,10300,{margin:900,leverage:125}),null);const b=[{notionalFloor:0,notionalCap:1000000,initialLeverage:125,maintMarginRatio:.004}];assert.equal(leverageIsSafe(p,10,b),true);assert.equal(leverageIsSafe(p,125,b),false);assert.equal(liquidationIsSafe(p,98.95),false);assert.equal(liquidationIsSafe(p,80),true);});
 test('paper entry partial bar checks stop and does not credit earlier high as profit',async()=>{for(const stop of [true,false]){await seed(false);const s=await getState('testnet');s.position={...p,opened:1000};s.lastCandle=-1;const c=Array.from({length:1000},(_,i)=>({time:i*900000,end:(i+1)*900000-1,open:100,close:100,high:i===0?103:100.1+Math.sin(i)*.01,low:i===0&&stop?98:99.9+Math.sin(i)*.01,volume:10}));paperCycle(s,c,100,c.at(-1)!.end+1);assert.equal(s.trades[0].status,stop?'CLOSED':'OPEN');if(stop)assert.equal(s.trades[0].exit,99);}});
+
+import {scheduleFailure} from '../src/lib/trading/retry-policy.ts';
+import {SettlementPending} from '../src/lib/trading/settlement-pending.ts';
+test('native exit settlement delay preserves continuous mode and settles once on retry',async()=>{
+ await seed(false);await changeState(s=>{s.generation='exit';},'testnet');
+ const {api:base}=mock(false);let ready=false,writes=0;
+ const api=Object.assign(async(path:string,method='GET',params:any={})=>{if(method!=='GET')writes++;if(path.endsWith('/account'))return {totalWalletBalance:'999',positions:[]};if(path.endsWith('/userTrades')&&!ready)return [];return base(path,method,params);},{serverTime:()=>Date.now()}) as Exchange;
+ let failure:unknown;try{await superviseLocked('testnet',api);}catch(e){failure=e;}
+ assert.ok(failure instanceof SettlementPending);
+ await changeState(s=>{assert.equal(scheduleFailure(s,'exit',100,failure),30100);},'testnet');
+ assert.equal((await getState('testnet')).enabled,true);assert.ok((await getState('testnet')).position);
+ ready=true;await superviseLocked('testnet',api);await superviseLocked('testnet',api);
+ const s=await getState('testnet');assert.equal(s.enabled,true);assert.equal(s.position,null);assert.equal(s.error,null);assert.equal(s.trades.length,1);assert.equal(s.trades[0].status,'CLOSED');assert.equal(writes,0);
+});
+test('native exit between account and protection queries does not become emergency stop',async()=>{
+ await seed(false);const {api:base}=mock(false);let accountReads=0,writes=0;
+ const api=Object.assign(async(path:string,method='GET',params:any={})=>{if(method!=='GET')writes++;if(path.endsWith('/account')&&++accountReads>1)return {totalWalletBalance:'999',positions:[]};return base(path,method,params);},{serverTime:()=>Date.now()}) as Exchange;
+ await superviseLocked('testnet',api);const s=await getState('testnet');assert.equal(s.enabled,true);assert.equal(s.position,null);assert.equal(s.trades[0].status,'CLOSED');assert.equal(writes,0);
+});
+test('settlement retry never restarts a manually stopped bot',async()=>{
+ await seed(false);await changeState(s=>{s.generation='manual';s.enabled=false;scheduleFailure(s,'manual',100,new SettlementPending());},'testnet');
+ const {api:base}=mock(false);const api=Object.assign(async(path:string,method='GET',params:any={})=>path.endsWith('/account')?{totalWalletBalance:'999',positions:[]}:base(path,method,params),{serverTime:()=>Date.now()}) as Exchange;
+ await superviseLocked('testnet',api);assert.equal((await getState('testnet')).enabled,false);
+});
+test('an exit during signature expiry grace keeps the bot armed without another order',async()=>{
+ await seed();await changeState(s=>{s.entryIntent!.lastSubmissionAt=Date.now();s.generation='grace';},'testnet');const {api:base}=mock(false);let writes=0;
+ const api=Object.assign(async(path:string,method='GET',params:any={})=>{if(method!=='GET')writes++;return path.endsWith('/account')?{totalWalletBalance:'999',positions:[]}:base(path,method,params);},{serverTime:()=>Date.now()}) as Exchange;
+ let error:unknown;try{await superviseLocked('testnet',api);}catch(e){error=e;}assert.ok(error instanceof SettlementPending);await changeState(s=>{scheduleFailure(s,'grace',100,error);},'testnet');assert.equal((await getState('testnet')).enabled,true);assert.equal(writes,0);
+});

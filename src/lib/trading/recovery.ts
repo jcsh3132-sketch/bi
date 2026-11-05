@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { BinanceError } from "./binance.ts";
 import { changeState, getState } from "./store.ts";
+import { SettlementPending } from "./settlement-pending.ts";
 import { settle, type Fill } from "./settlement.ts";
 import { liquidationIsSafe } from "./risk.ts";
 import { type Exchange, type LiveMode, withExecution } from "./execution-lock.ts";
@@ -45,8 +46,9 @@ export async function recoverEntry(mode:LiveMode,api:Exchange){
 async function finalizeFlat(mode:LiveMode,api:Exchange,p:Position){
  const s=await getState(mode);
  // A paused writer cannot later submit an entry/protection after its fixed signature expires.
- if(s.entryIntent&&Date.now()-s.entryIntent.lastSubmissionAt<EXPIRY_GRACE)throw Error("이전 주문 요청의 유효시간 종료와 잔여 주문을 확인 중입니다.");
+ if(s.entryIntent&&Date.now()-s.entryIntent.lastSubmissionAt<EXPIRY_GRACE)throw new SettlementPending();
  const {account,actual}=await exposure(api);if(actual)throw Error("청산 체결 확인 중입니다.");
+ try{
  const fills=await api<Fill[]>("/fapi/v1/userTrades","GET",{symbol:SYMBOL,startTime:p.opened-1000,limit:1000});
  const preliminary=settle(fills,p.orderId!,p.quantity);
  const incomes=await api<{income:string;asset:string}[]>("/fapi/v1/income","GET",{symbol:SYMBOL,incomeType:"FUNDING_FEE",startTime:p.opened,endTime:Date.parse(preliminary.exitTime),limit:1000});
@@ -57,6 +59,7 @@ async function finalizeFlat(mode:LiveMode,api:Exchange,p:Position){
  const balance=Number(account.totalWalletBalance);if(!Number.isFinite(balance))throw Error("잔고 확인 필요");
  await changeState(v=>{if(v.position?.orderId!==p.orderId)return;const trade=v.trades.findLast(t=>t.status==="OPEN");if(!trade)throw Error("거래 기록 확인 필요");Object.assign(trade,{...result,status:"CLOSED",result:result.pnl>0?"WIN":result.pnl<0?"LOSS":"BREAKEVEN"});v.position=null;v.pending=null;v.entryIntent=null;v.closeIntent=null;v.error=null;v.balance=balance;v.losses=result.pnl<0?v.losses+1:0;v.lastAt=Date.now();v.lastCandle=Math.max(v.lastCandle,Math.floor(Date.now()/900000)*900000-900000);v.history.push({time:new Date().toISOString(),balance});v.history=v.history.slice(-200);},mode);
  return result;
+ }catch{throw new SettlementPending();}
 }
 export async function closeLocked(mode:LiveMode,api:Exchange){
  let s=await getState(mode);const p=s.position;if(!p?.orderId)throw Error("종료할 봇 포지션 확인 필요");
@@ -94,8 +97,13 @@ export async function superviseLocked(mode:LiveMode,api:Exchange){
  const orders=await api<Algo[]>("/fapi/v1/openAlgoOrders","GET",{symbol:SYMBOL});
  const protectedPosition=validProtection(orders.find(o=>o.clientAlgoId===`bi-sl-${p.orderId}`),p,"STOP_MARKET",p.stop)&&validProtection(orders.find(o=>o.clientAlgoId===`bi-tp-${p.orderId}`),p,"TAKE_PROFIT_MARKET",p.target);
  let safe=protectedPosition;
- if(safe){const risks=await api<{symbol:string;positionAmt:string;liquidationPrice:string}[]>("/fapi/v3/positionRisk","GET",{symbol:SYMBOL});const risk=risks.find(r=>r.symbol===SYMBOL&&Number(r.positionAmt)!==0);if(!risk)throw Error("청산 여유 조회 확인 필요");safe=liquidationIsSafe(p,Number(risk.liquidationPrice));}
- if(!safe){await changeState(v=>{v.enabled=false;v.warning="보호 주문 누락 또는 청산 여유 부족을 확인하여 신규 진입을 막고 포지션 종료를 진행합니다.";},mode);await closeLocked(mode,api);return;}
+ if(safe){const risks=await api<{symbol:string;positionAmt:string;liquidationPrice:string}[]>("/fapi/v3/positionRisk","GET",{symbol:SYMBOL});const risk=risks.find(r=>r.symbol===SYMBOL&&Number(r.positionAmt)!==0);if(!risk){const refreshed=await exposure(api);if(!refreshed.actual){await finalizeFlat(mode,api,p);return;}throw Error("청산 여유 조회 확인 필요");}safe=liquidationIsSafe(p,Number(risk.liquidationPrice));}
+ if(!safe){
+  // A native stop/target may fill between account and protection reads.
+  const refreshed=await exposure(api);
+  if(!refreshed.actual){await finalizeFlat(mode,api,p);return;}
+  if(!matches(p,refreshed.actual))throw Error("수동 변경된 포지션 확인 필요");
+  await changeState(v=>{v.enabled=false;v.warning="보호 주문 누락 또는 청산 여유 부족을 확인하여 신규 진입을 막고 포지션 종료를 진행합니다.";},mode);await closeLocked(mode,api);return;}
  await changeState(v=>{if(v.position?.orderId===p!.orderId){v.pending=null;v.entryIntent=null;v.error=null;}},mode);
 }
 export async function supervise(mode:LiveMode){return withExecution(mode,api=>superviseLocked(mode,api));}

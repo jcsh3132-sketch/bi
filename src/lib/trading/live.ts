@@ -6,6 +6,7 @@ import { analyze, nextTick, plan, plannedRisk, ACCOUNT_RISK, COST_BUFFER, type C
 import { getSettings } from "./settings.ts";
 import { leverageIsSafe, type Bracket } from "./risk.ts";
 import { withExecution, type LiveMode } from "./execution-lock.ts";
+import { SettlementPending } from "./settlement-pending.ts";
 import { superviseLocked } from "./recovery.ts";
 const SYMBOL="BTCUSDT";
 type Account={multiAssetsMargin?:boolean;availableBalance:string;totalWalletBalance:string;positions:{symbol:string;positionAmt:string}[]};
@@ -26,7 +27,10 @@ export async function liveCycle(mode:LiveMode,generation:string,data:{candles:Ca
   s=await getState(mode);
   if(s.generation!==generation)return null;
   if(!s.enabled||s.error)return needsSupervision(s)?s.nextAt:null;
-  if(s.position||latest.time<=s.lastCandle||signal.side==="WAIT"||data.serverTime-latest.end>120000||balance<=s.dayBalance*.97||s.losses>=3){await changeState(v=>{if(v.generation===generation)v.lastCandle=latest.time;},mode);return s.nextAt;}
+  if(s.position||latest.time<=s.lastCandle||signal.side==="WAIT"||data.serverTime-latest.end>120000||balance<=s.dayBalance*.97||s.losses>=3){
+   const reason=s.position?null:balance<=s.dayBalance*.97||s.losses>=3?"일일 손실·연속 손실 한도로 신규 진입 대기 중입니다. 다음 UTC 날짜에 다시 확인합니다.":latest.time<=s.lastCandle?"거래 종료 또는 현재 봉 확인 완료 · 다음 15분 봉의 진입 신호를 기다립니다.":signal.side==="WAIT"?"봇 실행 중 · 진입 조건을 충족하는 다음 신호를 기다립니다.":"지난 신호로 진입하지 않고 다음 봉을 기다립니다.";
+   await changeState(v=>{if(v.generation===generation){v.lastCandle=latest.time;v.warning=reason;}},mode);return s.nextAt;
+  }
   const settings=await getSettings(mode);
   if(settings.sizing==="fixed"){
     if(settings.margin>available*.99){await changeState(v=>{if(v.generation===generation)v.warning="설정한 진입 증거금보다 사용 가능 잔고가 부족해 신규 진입을 생략했습니다.";},mode);return s.nextAt;}
@@ -67,7 +71,7 @@ export async function liveCycle(mode:LiveMode,generation:string,data:{candles:Ca
     await api("/fapi/v1/algoOrder","POST",{symbol:SYMBOL,algoType:"CONDITIONAL",side:p.side==="LONG"?"SELL":"BUY",positionSide:"BOTH",type,triggerPrice,closePosition:"true",workingType:"MARK_PRICE",clientAlgoId,timestamp:requestTime});
    }
    await superviseLocked(mode,api);
-  }catch{try{await superviseLocked(mode,api);}catch{}throw Error("진입 또는 보호 주문 복구 확인이 필요합니다.");}
+  }catch(error){if(error instanceof SettlementPending)throw error;try{await superviseLocked(mode,api);}catch{}throw Error("진입 또는 보호 주문 복구 확인이 필요합니다.");}
   return s.nextAt;
  });
 }
