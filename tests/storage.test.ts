@@ -1,3 +1,4 @@
+import {saveSettings} from "../src/lib/trading/settings.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -20,14 +21,17 @@ test("credentials survive reads and remain segregated by environment",async()=>{
   assert.equal(await loadCredential("mainnet"),null);
 });
 test("exchange timeout after intent never produces a second entry on replay",async()=>{
+  await saveSettings({environment:"testnet",entryFilter:"baseline",leverage:2,sizing:"auto",margin:100});
   await saveCredential("testnet","a".repeat(64),"b".repeat(64));
   await changeState(s=>{s.enabled=true;s.generation="timeout-test";},"testnet");
   const boundary=Math.floor(Date.now()/PERIOD)*PERIOD;
   const candles:Candle[]=Array.from({length:500},(_,i)=>{const close=10000+i*2+Math.sin(i*.7)*18;const time=boundary+(i-500)*PERIOD;return {time,end:time+PERIOD-1,open:close-2,high:close+8,low:close-8,close,volume:100};});
-  const original=globalThis.fetch;let submissions=0;
+  const original=globalThis.fetch;let submissions=0,invalidMark=true;
   globalThis.fetch=async(input,init)=>{
     const url=new URL(String(input));let result:unknown={};
-    if(url.pathname.endsWith("/time"))result={serverTime:Date.now()};
+    if(url.pathname.endsWith("/premiumIndex"))result={markPrice:String(invalidMark?1:10000+499*2+Math.sin(499*.7)*18)};
+    else if(url.pathname.endsWith("/bookTicker"))result={bidPrice:String(10000+499*2+Math.sin(499*.7)*18-.1),askPrice:String(10000+499*2+Math.sin(499*.7)*18+.1)};
+    else if(url.pathname.endsWith("/time"))result={serverTime:Date.now()};
     else if(url.pathname.endsWith("/account"))result={totalWalletBalance:"1000",availableBalance:"1000",positions:[]};
     else if(url.pathname.endsWith("/dual"))result={dualSidePosition:false};
     else if(url.pathname.endsWith("/exchangeInfo"))result={symbols:[{symbol:"BTCUSDT",status:"TRADING",filters:[{filterType:"MARKET_LOT_SIZE",stepSize:"0.001",minQty:"0.001",maxQty:"100"},{filterType:"PRICE_FILTER",tickSize:"0.10"}]}]};
@@ -37,6 +41,7 @@ test("exchange timeout after intent never produces a second entry on replay",asy
   };
   try{
     const data={candles,price:candles.at(-1)!.close,serverTime:boundary+5000};
+    if(invalidMark){await liveCycle("testnet","timeout-test",data);assert.equal(submissions,0);assert.equal((await getState("testnet")).pending,null);invalidMark=false;await changeState(s=>{s.lastCandle=0;},"testnet");}
     await assert.rejects(liveCycle("testnet","timeout-test",data));
     assert.equal(submissions,1);assert.ok((await getState("testnet")).pending);
     await assert.rejects(liveCycle("testnet","timeout-test",data));
@@ -52,7 +57,9 @@ test('native exit with delayed fills continues to the next eligible entry withou
  const original=globalThis.fetch;let fillsReady=false,entries=0;let newOrder:any=null;const algos:any[]=[];
  globalThis.fetch=async(input,init)=>{
   const url=new URL(String(input)),params=url.searchParams,path=url.pathname;let result:unknown;
-  if(path.endsWith('/time'))result={serverTime:Date.now()};
+  if(path.endsWith('/premiumIndex'))result={markPrice:String(10000+499*2+Math.sin(499*.7)*18)};
+  else if(path.endsWith('/bookTicker'))result={bidPrice:String(10000+499*2+Math.sin(499*.7)*18-.1),askPrice:String(10000+499*2+Math.sin(499*.7)*18+.1)};
+  else if(path.endsWith('/time'))result={serverTime:Date.now()};
   else if(path.endsWith('/account'))result={totalWalletBalance:'1000',availableBalance:'1000',positions:newOrder?[{symbol:'BTCUSDT',positionAmt:newOrder.executedQty,entryPrice:newOrder.avgPrice}]:[]};
   else if(path.endsWith('/dual'))result={dualSidePosition:false};
   else if(path.endsWith('/userTrades'))result=fillsReady?[{orderId:42,qty:'.02',price:'10000',realizedPnl:'0',commission:'.1',commissionAsset:'USDT',time:opened},{orderId:43,qty:'.02',price:'10200',realizedPnl:'4',commission:'.102',commissionAsset:'USDT',time:boundary-10000}]:[];

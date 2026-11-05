@@ -1,4 +1,6 @@
 import "server-only";
+import {analyzeEntry} from "./entry-filter.ts";
+import {entryQuoteIssue} from "./entry-quote.ts";
 import { createHash } from "node:crypto";
 import { roundStep } from "./binance.ts";
 import { changeState, getState, needsSupervision } from "./store.ts";
@@ -21,7 +23,8 @@ export async function liveCycle(mode:LiveMode,generation:string,data:{candles:Ca
   if(positionMode.dualSidePosition)throw Error("단방향 계정만 지원합니다.");
   s=await getState(mode);
   if(!s.position&&account.positions.some(p=>p.symbol===SYMBOL&&Number(p.positionAmt)!==0))throw Error("봇 외부의 포지션이 있습니다.");
-  const signal=analyze(data.candles), balance=Number(account.totalWalletBalance),available=Number(account.availableBalance);
+  const settings=await getSettings(mode);
+  const signal=analyzeEntry(data.candles,settings.entryFilter), balance=Number(account.totalWalletBalance),available=Number(account.availableBalance);
   if(!Number.isFinite(balance)||!Number.isFinite(available)||balance<0)throw new Error("잔고 확인 실패");
   await changeState(v=>{if(v.generation!==generation)return;v.balance=balance;v.lastAt=data.serverTime;v.nextAt=nextTick(data.serverTime);v.signal=signal;v.warning=null;const day=new Date(data.serverTime).toISOString().slice(0,10);if(v.day!==day){v.day=day;v.dayBalance=balance;v.losses=0;}v.history.push({time:new Date(data.serverTime).toISOString(),balance});v.history=v.history.slice(-200);},mode);
   s=await getState(mode);
@@ -31,7 +34,6 @@ export async function liveCycle(mode:LiveMode,generation:string,data:{candles:Ca
    const reason=s.position?null:balance<=s.dayBalance*.97||s.losses>=3?"일일 손실·연속 손실 한도로 신규 진입 대기 중입니다. 다음 UTC 날짜에 다시 확인합니다.":latest.time<=s.lastCandle?"거래 종료 또는 현재 봉 확인 완료 · 다음 15분 봉의 진입 신호를 기다립니다.":signal.side==="WAIT"?"봇 실행 중 · 진입 조건을 충족하는 다음 신호를 기다립니다.":"지난 신호로 진입하지 않고 다음 봉을 기다립니다.";
    await changeState(v=>{if(v.generation===generation){v.lastCandle=latest.time;v.warning=reason;}},mode);return s.nextAt;
   }
-  const settings=await getSettings(mode);
   if(settings.sizing==="fixed"){
     if(settings.margin>available*.99){await changeState(v=>{if(v.generation===generation)v.warning="설정한 진입 증거금보다 사용 가능 잔고가 부족해 신규 진입을 생략했습니다.";},mode);return s.nextAt;}
   }
@@ -52,6 +54,9 @@ export async function liveCycle(mode:LiveMode,generation:string,data:{candles:Ca
   const tiers=await api<{symbol:string;brackets:Bracket[]}[]>("/fapi/v1/leverageBracket","GET",{symbol:SYMBOL});
   const tier=tiers.find(t=>t.symbol===SYMBOL);
   if(!tier||!leverageIsSafe({...p,opened:Date.now()},settings.leverage,tier.brackets)){await changeState(v=>{if(v.generation===generation)v.warning="설정 배수에서 손절보다 청산이 먼저 발생할 수 있어 신규 진입을 생략했습니다.";},mode);return s.nextAt;}
+  const quote=await Promise.all(["/fapi/v1/premiumIndex?symbol=BTCUSDT","/fapi/v1/ticker/bookTicker?symbol=BTCUSDT"].map(async path=>{const r=await fetch(base+path,{cache:"no-store",signal:AbortSignal.timeout(12000)});if(!r.ok)throw Error("진입 호가 확인 실패");return r.json();}));
+  const quoteIssue=entryQuoteIssue(p,Number(quote[0].markPrice),Number(quote[1].bidPrice),Number(quote[1].askPrice));
+  if(quoteIssue){await changeState(v=>{if(v.generation===generation){v.warning=quoteIssue;v.lastCandle=latest.time;}},mode);return s.nextAt;}
   const leverageResult=await api<{leverage?:number;maxNotionalValue?:string}>("/fapi/v1/leverage","POST",{symbol:SYMBOL,leverage:settings.leverage});
   if(leverageResult.leverage!=null&&leverageResult.leverage!==settings.leverage)throw new Error("요청한 배수 적용 실패");
   if(leverageResult.maxNotionalValue!=null&&Number(quantity)*data.price>Number(leverageResult.maxNotionalValue))throw new Error("배수별 최대 주문 금액 초과");
@@ -63,7 +68,7 @@ export async function liveCycle(mode:LiveMode,generation:string,data:{candles:Ca
    const order=await api<{orderId:number;avgPrice:string;executedQty:string;status:string}>("/fapi/v1/order","POST",{symbol:SYMBOL,side:p.side==="LONG"?"BUY":"SELL",positionSide:"BOTH",type:"MARKET",quantity,newClientOrderId:clientId,newOrderRespType:"RESULT",timestamp});
    const entry=Number(order.avgPrice),filled=Number(order.executedQty);
    if(order.status!=="FILLED"||!Number.isFinite(order.orderId)||!Number.isFinite(entry)||entry<=0||!Number.isFinite(filled)||filled<=0)throw Error("미확정 체결 확인 필요");
-   await changeState(v=>{if(v.pending!==clientId)throw Error("진입 기록 확인 필요");v.position={...p,entry,quantity:filled,opened:submittedAt,orderId:order.orderId};v.trades.push({id:(v.trades.at(-1)?.id||0)+1,side:p.side,status:"OPEN",entryTime:new Date(submittedAt).toISOString(),exitTime:null,entry,exit:null,pnl:null,result:null});},mode);
+   await changeState(v=>{if(v.pending!==clientId)throw Error("진입 기록 확인 필요");v.position={...p,entry,quantity:filled,opened:submittedAt,orderId:order.orderId};v.trades.push({id:(v.trades.at(-1)?.id||0)+1,side:p.side,status:"OPEN",entryTime:new Date(submittedAt).toISOString(),exitTime:null,entry,exit:null,pnl:null,result:null,entryFilter:settings.entryFilter,plannedStop:p.stop,plannedTarget:p.target,leverage:settings.leverage});},mode);
    if((Math.abs(entry-p.stop)+entry*.002)*filled>Math.min(balance,available)*ACCOUNT_RISK+1e-8||(p.side==="LONG"&&(entry<=p.stop||entry>=p.target))||(p.side==="SHORT"&&(entry>=p.stop||entry<=p.target)))throw Error("체결 가격이 위험 한도를 벗어났습니다.");
    for(const [type,triggerPrice,clientAlgoId] of [["STOP_MARKET",stop,`bi-sl-${order.orderId}`],["TAKE_PROFIT_MARKET",target,`bi-tp-${order.orderId}`]]){
     const requestTime=api.serverTime();

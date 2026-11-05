@@ -57,13 +57,13 @@ async function finalizeFlat(mode:LiveMode,api:Exchange,p:Position){
  const orders=await api<Algo[]>("/fapi/v1/openAlgoOrders","GET",{symbol:SYMBOL});
  for(const o of orders.filter(o=>[`bi-sl-${p.orderId}`,`bi-tp-${p.orderId}`].includes(o.clientAlgoId)))await api("/fapi/v1/algoOrder","DELETE",{symbol:SYMBOL,algoId:o.algoId});
  const balance=Number(account.totalWalletBalance);if(!Number.isFinite(balance))throw Error("잔고 확인 필요");
- await changeState(v=>{if(v.position?.orderId!==p.orderId)return;const trade=v.trades.findLast(t=>t.status==="OPEN");if(!trade)throw Error("거래 기록 확인 필요");Object.assign(trade,{...result,status:"CLOSED",result:result.pnl>0?"WIN":result.pnl<0?"LOSS":"BREAKEVEN"});v.position=null;v.pending=null;v.entryIntent=null;v.closeIntent=null;v.error=null;v.balance=balance;v.losses=result.pnl<0?v.losses+1:0;v.lastAt=Date.now();v.lastCandle=Math.max(v.lastCandle,Math.floor(Date.now()/900000)*900000-900000);v.history.push({time:new Date().toISOString(),balance});v.history=v.history.slice(-200);},mode);
+ await changeState(v=>{if(v.position?.orderId!==p.orderId)return;const trade=v.trades.findLast(t=>t.status==="OPEN");if(!trade)throw Error("거래 기록 확인 필요");Object.assign(trade,{...result,exitReason:trade.exitReason||"EXCHANGE_EXIT",status:"CLOSED",result:result.pnl>0?"WIN":result.pnl<0?"LOSS":"BREAKEVEN"});v.position=null;v.pending=null;v.entryIntent=null;v.closeIntent=null;v.error=null;v.balance=balance;v.losses=result.pnl<0?v.losses+1:0;v.lastAt=Date.now();v.lastCandle=Math.max(v.lastCandle,Math.floor(Date.now()/900000)*900000-900000);v.history.push({time:new Date().toISOString(),balance});v.history=v.history.slice(-200);},mode);
  return result;
  }catch{throw new SettlementPending();}
 }
-export async function closeLocked(mode:LiveMode,api:Exchange){
+export async function closeLocked(mode:LiveMode,api:Exchange,reason:"MANUAL"|"PROTECTION_MISSING"|"LIQUIDATION_RISK"="MANUAL"){
  let s=await getState(mode);const p=s.position;if(!p?.orderId)throw Error("종료할 봇 포지션 확인 필요");
- await changeState(v=>{v.enabled=false;},mode);
+ await changeState(v=>{v.enabled=false;const trade=v.trades.findLast(t=>t.status==="OPEN");if(trade&&!trade.exitReason)trade.exitReason=reason;},mode);
  let {actual}=await exposure(api);
  if(!actual)return finalizeFlat(mode,api,p);
  if(!matches(p,actual,!!s.closeIntent))throw Error("거래소 포지션과 봇 기록이 다릅니다.");
@@ -103,7 +103,7 @@ export async function superviseLocked(mode:LiveMode,api:Exchange){
   const refreshed=await exposure(api);
   if(!refreshed.actual){await finalizeFlat(mode,api,p);return;}
   if(!matches(p,refreshed.actual))throw Error("수동 변경된 포지션 확인 필요");
-  await changeState(v=>{v.enabled=false;v.warning="보호 주문 누락 또는 청산 여유 부족을 확인하여 신규 진입을 막고 포지션 종료를 진행합니다.";},mode);await closeLocked(mode,api);return;}
+  await changeState(v=>{v.enabled=false;v.warning="보호 주문 누락 또는 청산 여유 부족을 확인하여 신규 진입을 막고 포지션 종료를 진행합니다.";},mode);await closeLocked(mode,api,protectedPosition?"LIQUIDATION_RISK":"PROTECTION_MISSING");return;}
  await changeState(v=>{if(v.position?.orderId===p!.orderId){v.pending=null;v.entryIntent=null;v.error=null;}},mode);
 }
 export async function supervise(mode:LiveMode){return withExecution(mode,api=>superviseLocked(mode,api));}

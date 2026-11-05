@@ -1,0 +1,253 @@
+{
+  "candidates": [
+    "baseline",
+    "trend-quality",
+    "pullback",
+    "breakout"
+  ],
+  "results": [
+    {
+      "period": "recent-exploratory",
+      "runs": [
+        {
+          "id": "baseline",
+          "trades": 208,
+          "wins": 69,
+          "winRate": 33.17307692307692,
+          "winRate95": [
+            27.130447855139256,
+            39.82599507202897
+          ],
+          "net": -114.11440645448337,
+          "returnPct": -11.512169845612341,
+          "profitFactor": 0.7786401868985321,
+          "maxDrawdown": 13.633579617194519,
+          "averageWin": 5.817406610963728,
+          "averageLoss": 3.708744335330796,
+          "fees": 78.03374824857448,
+          "funding": 0.3722559359600206,
+          "openPosition": true
+        },
+        {
+          "id": "trend-quality",
+          "trades": 228,
+          "wins": 79,
+          "winRate": 34.64912280701755,
+          "winRate95": [
+            28.772838233393216,
+            41.03413342311709
+          ],
+          "net": -138.04050364323444,
+          "returnPct": -13.978288079843459,
+          "profitFactor": 0.7420567488836184,
+          "maxDrawdown": 15.91378959636421,
+          "averageWin": 5.026809113255699,
+          "averageLoss": 3.5916672724190244,
+          "fees": 114.62048562813679,
+          "funding": 0.0010251027170484466,
+          "openPosition": true
+        },
+        {
+          "id": "pullback",
+          "trades": 86,
+          "wins": 33,
+          "winRate": 38.372093023255815,
+          "winRate95": [
+            28.801279969390333,
+            48.9373177403566
+          ],
+          "net": -35.566767354716404,
+          "returnPct": -3.5566767354715645,
+          "profitFactor": 0.822177591109877,
+          "maxDrawdown": 7.632496304809043,
+          "averageWin": 4.983214720830084,
+          "averageLoss": 3.7738274177756415,
+          "fees": 47.55514469167809,
+          "funding": -0.36655669686830494,
+          "openPosition": false
+        },
+        {
+          "id": "breakout",
+          "trades": 2,
+          "wins": 1,
+          "winRate": 50,
+          "winRate95": [
+            9.452865480086615,
+            90.54713451991339
+          ],
+          "net": 0.34022600179400975,
+          "returnPct": 0.03402260017939529,
+          "profitFactor": 1.0881579417667782,
+          "maxDrawdown": 0.5284970177538784,
+          "averageWin": 4.199503963319898,
+          "averageLoss": 3.859277961525888,
+          "fees": 1.2980344625913474,
+          "funding": 0.028025407080000002,
+          "openPosition": false
+        }
+      ]
+    },
+    {
+      "period": "independent-2025",
+      "runs": [
+        {
+          "id": "baseline",
+          "trades": 572,
+          "wins": 193,
+          "winRate": 33.74125874125874,
+          "winRate95": [
+            29.986251226283283,
+            37.71319945598766
+          ],
+          "net": -249.24850548047826,
+          "returnPct": -24.83960760384789,
+          "profitFactor": 0.7933618641462127,
+          "maxDrawdown": 26.8973907480134,
+          "averageWin": 4.9583376675578625,
+          "averageLoss": 3.1826060034805965,
+          "fees": 191.2957045311321,
+          "funding": -1.8823512581585342,
+          "openPosition": true
+        },
+        {
+          "id": "trend-quality",
+          "trades": 499,
+          "wins": 168,
+          "winRate": 33.66733466933868,
+          "winRate95": [
+            29.659671947912926,
+            37.92455338268821
+          ],
+          "net": -285.0412719158712,
+          "returnPct": -28.418884247387087,
+          "profitFactor": 0.7335672395224154,
+          "maxDrawdown": 29.435958373914467,
+          "averageWin": 4.6714399333249235,
+          "averageLoss": 3.232154624514985,
+          "fees": 212.05265299786996,
+          "funding": -0.9559662473975729,
+          "openPosition": true
+        },
+        {
+          "id": "pullback",
+          "trades": 202,
+          "wins": 78,
+          "winRate": 38.613861386138616,
+          "winRate95": [
+            32.171823196533786,
+            45.48089617603232
+          ],
+          "net": -43.884314105040225,
+          "returnPct": -4.388431410504168,
+          "profitFactor": 0.9048227334986084,
+          "maxDrawdown": 11.82684760132034,
+          "averageWin": 5.348659954618783,
+          "averageLoss": 3.718385407784717,
+          "fees": 105.99548268537917,
+          "funding": -0.049687398062892615,
+          "openPosition": false
+        },
+        {
+          "id": "breakout",
+          "trades": 11,
+          "wins": 4,
+          "winRate": 36.36363636363637,
+          "winRate95": [
+            15.166223614131383,
+            64.62032231083627
+          ],
+          "net": -4.303930056833342,
+          "returnPct": -0.4303930056833716,
+          "profitFactor": 0.8297541573499644,
+          "maxDrawdown": 1.5108117353751844,
+          "averageWin": 5.244186586309252,
+          "averageLoss": 3.6115252002957634,
+          "fees": 4.840838675404843,
+          "funding": -0.11789469226120611,
+          "openPosition": false
+        }
+      ]
+    },
+    {
+      "period": "fresh-2026-10",
+      "runs": [
+        {
+          "id": "baseline",
+          "trades": 36,
+          "wins": 10,
+          "winRate": 27.77777777777778,
+          "winRate95": [
+            15.848170025813795,
+            43.992800216345145
+          ],
+          "net": -39.827303734253796,
+          "returnPct": -3.778187473885386,
+          "profitFactor": 0.5913960174673869,
+          "maxDrawdown": 5.410275160959248,
+          "averageWin": 5.76443446999974,
+          "averageLoss": 3.748909555163507,
+          "fees": 14.686639114604793,
+          "funding": 0.6134677863839176,
+          "openPosition": true
+        },
+        {
+          "id": "trend-quality",
+          "trades": 43,
+          "wins": 14,
+          "winRate": 32.55813953488372,
+          "winRate95": [
+            20.49311518177982,
+            47.48406749344905
+          ],
+          "net": -34.4265670943778,
+          "returnPct": -3.238113809897747,
+          "profitFactor": 0.6798849228697296,
+          "maxDrawdown": 4.788038554536624,
+          "averageWin": 5.222698600287941,
+          "averageLoss": 3.7084257758072057,
+          "fees": 23.057688896103294,
+          "funding": 0.21957735673134826,
+          "openPosition": true
+        },
+        {
+          "id": "pullback",
+          "trades": 16,
+          "wins": 7,
+          "winRate": 43.75,
+          "winRate95": [
+            23.09836333518552,
+            66.82180439322347
+          ],
+          "net": 5.17540014599823,
+          "returnPct": 0.4859577472438037,
+          "profitFactor": 1.153888315700387,
+          "maxDrawdown": 1.8641206507325918,
+          "averageWin": 5.543754926015221,
+          "averageLoss": 3.7367649262342573,
+          "fees": 8.931073596787257,
+          "funding": 0.018270857385069603,
+          "openPosition": true
+        },
+        {
+          "id": "breakout",
+          "trades": 1,
+          "wins": 1,
+          "winRate": 100,
+          "winRate95": [
+            20.654329147389294,
+            100
+          ],
+          "net": 5.687804230773022,
+          "returnPct": 0.5687804230773086,
+          "profitFactor": null,
+          "maxDrawdown": 0.2769521526630001,
+          "averageWin": 5.687804230773022,
+          "averageLoss": 0,
+          "fees": 0.4855006808761005,
+          "funding": -0.02025525615,
+          "openPosition": false
+        }
+      ]
+    }
+  ]
+}
