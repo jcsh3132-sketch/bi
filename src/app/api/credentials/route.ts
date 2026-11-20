@@ -27,7 +27,7 @@ export async function DELETE(request: NextRequest) {
     const data = await readBody(request);
     const env = environmentSchema.safeParse(data.environment);
     if (!env.success || data.confirm !== "삭제") throw new HttpError(400, "삭제 확인 문구를 입력하세요.");
-    await changeState(s=>{s.enabled=false;s.generation=randomUUID();s.nextAt=null;},env.data);
+    await changeState(s=>{s.enabled=false;s.continuous=false;s.autoResumeAt=null;s.monitorId=null;s.generation=randomUUID();s.nextAt=null;},env.data);
     await query("DELETE FROM api_credentials WHERE environment=$1", [env.data]);
     return json({ ok: true, credentials: await credentialList() });
   } catch (e) { return failure(e); }

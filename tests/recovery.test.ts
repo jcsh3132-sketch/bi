@@ -60,3 +60,33 @@ test('an exit during signature expiry grace keeps the bot armed without another 
  const api=Object.assign(async(path:string,method='GET',params:any={})=>{if(method!=='GET')writes++;return path.endsWith('/account')?{totalWalletBalance:'999',positions:[]}:base(path,method,params);},{serverTime:()=>Date.now()}) as Exchange;
  let error:unknown;try{await superviseLocked('testnet',api);}catch(e){error=e;}assert.ok(error instanceof SettlementPending);await changeState(s=>{scheduleFailure(s,'grace',100,error);},'testnet');assert.equal((await getState('testnet')).enabled,true);assert.equal(writes,0);
 });
+
+import {resumeIfReady} from '../src/lib/trading/continuity.ts';
+test('protection list lag is verified by client ID before any emergency close',async()=>{
+ await seed(false);const {api:base,writes}=mock(true);
+ const api=Object.assign(async(path:string,method='GET',params:any={})=>{
+  if(path.endsWith('/openAlgoOrders'))return [];
+  if(path.endsWith('/algoOrder')&&method==='GET'){const rows=await base<any[]>('/fapi/v1/openAlgoOrders');return {...rows.find(o=>o.clientAlgoId===params.clientAlgoId),closePosition:'true',algoStatus:'NEW',positionSide:'BOTH'};}
+  return base(path,method,params);
+ },{serverTime:()=>Date.now()}) as Exchange;
+ await superviseLocked('testnet',api);assert.equal(writes.length,0);assert.equal((await getState('testnet')).enabled,true);
+});
+test('automatic protection exit settles, schedules cooldown and resumes only when flat',async()=>{
+ await seed(false);await changeState(s=>{s.continuous=true;s.autoResumeAt=null;},'testnet');const {api,writes}=mock(false);
+ await superviseLocked('testnet',api);let s=await getState('testnet');assert.equal(s.position,null);assert.equal(s.enabled,false);assert.ok(s.autoResumeAt!>Date.now());assert.equal(writes.length,1);assert.match(s.warning!,/정산 완료/);
+ resumeIfReady(s,s.autoResumeAt!);assert.equal(s.enabled,true);assert.equal(s.trades[0].exitReason,'PROTECTION_MISSING');
+ await changeState(v=>{v.continuous=false;v.autoResumeAt=null;},'testnet');
+});
+
+test('false closePosition or canceled individual protection never counts as protection',async()=>{
+ for(const invalid of [{closePosition:'false',algoStatus:'NEW'},{closePosition:true,algoStatus:'CANCELED'}]){
+ await seed(false);const {api:base,writes}=mock(true);
+ const api=Object.assign(async(path:string,method='GET',params:any={})=>{
+  if(path.endsWith('/openAlgoOrders'))return (await base<any[]>(path)).map(o=>({...o,...invalid}));
+  if(path.endsWith('/algoOrder')&&method==='GET')return {...(await base<any[]>('/fapi/v1/openAlgoOrders')).find(o=>o.clientAlgoId===params.clientAlgoId),...invalid};
+  if(path.endsWith('/algoOrder')&&method==='DELETE')return {};
+  return base(path,method,params);
+ },{serverTime:()=>Date.now()}) as Exchange;
+ await superviseLocked('testnet',api);assert.equal(writes.filter(w=>w.method==='POST').length,1);assert.equal((await getState('testnet')).position,null);
+ }
+});

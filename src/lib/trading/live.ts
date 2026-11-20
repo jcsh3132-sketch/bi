@@ -1,4 +1,5 @@
 import "server-only";
+import {needsSchedule} from './continuity.ts';
 import {analyzeEntry} from "./entry-filter.ts";
 import {entryQuoteIssue} from "./entry-quote.ts";
 import { createHash } from "node:crypto";
@@ -29,7 +30,7 @@ export async function liveCycle(mode:LiveMode,generation:string,data:{candles:Ca
   await changeState(v=>{if(v.generation!==generation)return;v.balance=balance;v.lastAt=data.serverTime;v.nextAt=nextTick(data.serverTime);v.signal=signal;v.warning=null;const day=new Date(data.serverTime).toISOString().slice(0,10);if(v.day!==day){v.day=day;v.dayBalance=balance;v.losses=0;}v.history.push({time:new Date(data.serverTime).toISOString(),balance});v.history=v.history.slice(-200);},mode);
   s=await getState(mode);
   if(s.generation!==generation)return null;
-  if(!s.enabled||s.error)return needsSupervision(s)?s.nextAt:null;
+  if(!s.enabled||s.error)return needsSchedule(s)?s.nextAt:null;
   if(s.position||latest.time<=s.lastCandle||signal.side==="WAIT"||data.serverTime-latest.end>120000||balance<=s.dayBalance*.97||s.losses>=3){
    const reason=s.position?null:balance<=s.dayBalance*.97||s.losses>=3?"일일 손실·연속 손실 한도로 신규 진입 대기 중입니다. 다음 UTC 날짜에 다시 확인합니다.":latest.time<=s.lastCandle?"거래 종료 또는 현재 봉 확인 완료 · 다음 15분 봉의 진입 신호를 기다립니다.":signal.side==="WAIT"?"봇 실행 중 · 진입 조건을 충족하는 다음 신호를 기다립니다.":"지난 신호로 진입하지 않고 다음 봉을 기다립니다.";
    await changeState(v=>{if(v.generation===generation){v.lastCandle=latest.time;v.warning=reason;}},mode);return s.nextAt;
@@ -64,19 +65,22 @@ export async function liveCycle(mode:LiveMode,generation:string,data:{candles:Ca
   const submittedAt=Date.now(),timestamp=api.serverTime();
   const claimed=await changeState(v=>{if(!v.enabled||v.error||v.generation!==generation||v.position||v.pending||v.lastCandle>=latest.time)return false;v.pending=clientId;v.entryIntent={clientId,plan:{...p,opened:submittedAt},submittedAt,requestTimestamp:timestamp,lastSubmissionAt:submittedAt,riskBudget:Math.min(balance,available)*ACCOUNT_RISK};v.lastCandle=latest.time;return true;},mode);
   if(!claimed)return s.nextAt;
+  let stage='시장가 진입';
   try{
    const order=await api<{orderId:number;avgPrice:string;executedQty:string;status:string}>("/fapi/v1/order","POST",{symbol:SYMBOL,side:p.side==="LONG"?"BUY":"SELL",positionSide:"BOTH",type:"MARKET",quantity,newClientOrderId:clientId,newOrderRespType:"RESULT",timestamp});
    const entry=Number(order.avgPrice),filled=Number(order.executedQty);
    if(order.status!=="FILLED"||!Number.isFinite(order.orderId)||!Number.isFinite(entry)||entry<=0||!Number.isFinite(filled)||filled<=0)throw Error("미확정 체결 확인 필요");
    await changeState(v=>{if(v.pending!==clientId)throw Error("진입 기록 확인 필요");v.position={...p,entry,quantity:filled,opened:submittedAt,orderId:order.orderId};v.trades.push({id:(v.trades.at(-1)?.id||0)+1,side:p.side,status:"OPEN",entryTime:new Date(submittedAt).toISOString(),exitTime:null,entry,exit:null,pnl:null,result:null,entryFilter:settings.entryFilter,plannedStop:p.stop,plannedTarget:p.target,leverage:settings.leverage});},mode);
    if((Math.abs(entry-p.stop)+entry*.002)*filled>Math.min(balance,available)*ACCOUNT_RISK+1e-8||(p.side==="LONG"&&(entry<=p.stop||entry>=p.target))||(p.side==="SHORT"&&(entry>=p.stop||entry<=p.target)))throw Error("체결 가격이 위험 한도를 벗어났습니다.");
+   stage='손절·익절 등록';
    for(const [type,triggerPrice,clientAlgoId] of [["STOP_MARKET",stop,`bi-sl-${order.orderId}`],["TAKE_PROFIT_MARKET",target,`bi-tp-${order.orderId}`]]){
     const requestTime=api.serverTime();
     await changeState(v=>{if(v.pending!==clientId||!v.entryIntent)throw Error("보호 주문 의도 확인 필요");v.entryIntent.lastSubmissionAt=Date.now();},mode);
     await api("/fapi/v1/algoOrder","POST",{symbol:SYMBOL,algoType:"CONDITIONAL",side:p.side==="LONG"?"SELL":"BUY",positionSide:"BOTH",type,triggerPrice,closePosition:"true",workingType:"MARK_PRICE",clientAlgoId,timestamp:requestTime});
    }
+   stage='보호 주문 검증';
    await superviseLocked(mode,api);
-  }catch(error){if(error instanceof SettlementPending)throw error;try{await superviseLocked(mode,api);}catch{}throw Error("진입 또는 보호 주문 복구 확인이 필요합니다.");}
+  }catch(error){if(error instanceof SettlementPending)throw error;await changeState(v=>{v.lastIssue=stage+' 단계 실패'+(error instanceof Error&&'code' in error?' · 거래소 코드 '+Number(error.code):'');},mode);try{await superviseLocked(mode,api);}catch{}throw error;}
   return s.nextAt;
  });
 }

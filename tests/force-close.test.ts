@@ -6,7 +6,7 @@ import {changeState,getState} from "../src/lib/trading/store.ts";
 import {forceClose} from "../src/lib/trading/force-close.ts";
 process.env.LOCAL_DATABASE_PATH=`.local/close-${randomUUID()}.db`;
 process.env.CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString("base64");
-async function seed(){await saveCredential("testnet","a".repeat(64),"b".repeat(64));await changeState(s=>{s.enabled=true;s.pending=null;s.error=null;s.position={side:"LONG",entry:10000,stop:9900,target:10200,quantity:.01,opened:1000,orderId:1};s.trades=[{id:1,side:"LONG",status:"OPEN",entryTime:new Date(1000).toISOString(),exitTime:null,entry:10000,exit:null,pnl:null,result:null}];},"testnet");}
+async function seed(){await saveCredential("testnet","a".repeat(64),"b".repeat(64));await changeState(s=>{s.enabled=true;s.continuous=true;s.autoResumeAt=Date.now()+3600000;s.pending=null;s.error=null;s.position={side:"LONG",entry:10000,stop:9900,target:10200,quantity:.01,opened:1000,orderId:1};s.trades=[{id:1,side:"LONG",status:"OPEN",entryTime:new Date(1000).toISOString(),exitTime:null,entry:10000,exit:null,pnl:null,result:null}];},"testnet");}
 test("market close stops bot, settles costs, clears intent and only cancels bot protections",async()=>{
   await seed();const original=globalThis.fetch;let flat=false,posts=0;const deleted:number[]=[];
   globalThis.fetch=async(input,init)=>{const u=new URL(String(input));let body:unknown={};
@@ -18,7 +18,7 @@ test("market close stops bot, settles costs, clears intent and only cancels bot 
     else if(u.pathname.endsWith("/openAlgoOrders"))body=[{algoId:11,clientAlgoId:"bi-sl-1"},{algoId:12,clientAlgoId:"bi-tp-1"},{algoId:13,clientAlgoId:"manual-order"}];
     else if(u.pathname.endsWith("/algoOrder")){assert.equal(init?.method,"DELETE");deleted.push(Number(u.searchParams.get("algoId")));}
     return new Response(JSON.stringify(body));};
-  try{await forceClose("testnet");const s=await getState("testnet");assert.equal(posts,1);assert.equal(s.enabled,false);assert.equal(s.pending,null);assert.equal(s.position,null);assert.equal(s.trades[0].status,"CLOSED");assert.ok(Math.abs(s.trades[0].pnl!-.8995)<1e-8);assert.deepEqual(deleted,[11,12]);}finally{globalThis.fetch=original;}
+  try{await forceClose("testnet");const s=await getState("testnet");assert.equal(posts,1);assert.equal(s.enabled,false);assert.equal(s.continuous,false);assert.equal(s.autoResumeAt,null);assert.equal(s.pending,null);assert.equal(s.position,null);assert.equal(s.trades[0].status,"CLOSED");assert.ok(Math.abs(s.trades[0].pnl!-.8995)<1e-8);assert.deepEqual(deleted,[11,12]);}finally{globalThis.fetch=original;}
 });
 test("an ambiguous close is never submitted twice and blocks new entry until reconciled",async()=>{
   await seed();const original=globalThis.fetch;let posts=0;

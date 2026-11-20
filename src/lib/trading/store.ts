@@ -13,6 +13,7 @@ export type BotState = {
   enabled: boolean; generation: string; nextAt: number | null; lastAt: number | null;
   workflowId: string | null; error: string | null; lastCandle: number;
   warning: string | null;
+  continuous?:boolean; autoResumeAt?:number|null; monitorId?:string|null; monitorAt?:number|null; lastIssue?:string|null;
   balance: number; day: string; dayBalance: number; losses: number;
   position: Position | null; signal: Snapshot["signal"];
   history: Snapshot["history"]; trades: Snapshot["trades"];

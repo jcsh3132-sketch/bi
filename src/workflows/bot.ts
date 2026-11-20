@@ -1,3 +1,4 @@
+import { needsSchedule, resumeIfReady } from '@/lib/trading/continuity';
 import { sleep } from "workflow";
 import { start } from "workflow/api";
 import { changeState, getState, needsSupervision, type Mode, botMode } from "@/lib/trading/store";
@@ -11,13 +12,14 @@ async function cycle(generation:string,mode:Mode){
  "use step";
  if(botMode()!==mode)return null;
  const s=await getState(mode);
- if(s.generation!==generation||(!s.enabled&&!needsSupervision(s)))return null;
+ if(s.generation!==generation||!needsSchedule(s))return null;
  try{
   // Reconcile exposure even if candle/ticker services are unavailable.
   if(mode!=="paper"&&needsSupervision(s))await supervise(mode);
+  await changeState(v=>{if(v.generation===generation)resumeIfReady(v,Date.now());},mode);
   const current=await getState(mode);
   if(current.generation!==generation)return null;
-  if(!current.enabled){return changeState(v=>{if(v.generation!==generation)return null;v.nextAt=needsSupervision(v)?nextTick(Date.now()):null;return v.nextAt;},mode);}
+  if(!current.enabled){return changeState(v=>{if(v.generation!==generation)return null;v.nextAt=needsSchedule(v)?Date.now()+60000:null;return v.nextAt;},mode);}
   let data;
   try{data=await marketData(mode);}catch{return changeState(v=>{if(v.generation!==generation)return null;v.warning="시장 데이터 연결 실패. 기존 주문 확인을 유지하며 다음 예약에서 재시도합니다.";v.nextAt=needsSupervision(v)?Date.now()+30000:nextTick(Date.now());return v.nextAt;},mode);}
   if(mode!=="paper")return await liveCycle(mode,generation,data);
@@ -26,8 +28,8 @@ async function cycle(generation:string,mode:Mode){
   return changeState(v=>scheduleFailure(v,generation,Date.now(),error),mode);
  }
 }
-async function active(generation:string,mode:Mode){"use step";return botMode()===mode&&await changeState(s=>s.generation===generation&&(s.enabled||needsSupervision(s)),mode);}
-async function recordRun(generation:string,mode:Mode,id:string){"use step";await changeState(s=>{if(s.generation===generation&&(s.enabled||needsSupervision(s)))s.workflowId=id;},mode);}
+async function active(generation:string,mode:Mode){"use step";return botMode()===mode&&await changeState(s=>s.generation===generation&&needsSchedule(s),mode);}
+async function recordRun(generation:string,mode:Mode,id:string){"use step";await changeState(s=>{if(s.generation===generation&&needsSchedule(s))s.workflowId=id;},mode);}
 export async function scheduledBot(generation:string,mode:Mode){
  "use workflow";
  while(true){
